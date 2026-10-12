@@ -9,7 +9,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from PIL import Image, ImageDraw, ImageFont
 
-# Получаем токен из переменных среды Render или задаем напрямую
+# Токен береться з Environment Variables Render або вказується вручну
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ВАШ_ТОКЕН_БОТА")
 
 bot = Bot(token=BOT_TOKEN)
@@ -24,7 +24,7 @@ QUEUE_KEYS = [
 FONT_PATH = "Montserrat-Bold.ttf"
 
 def ensure_font_exists():
-    """Скачивает шрифт Montserrat с поддержкой кириллицы при первом старте."""
+    """Завантажує шрифт Montserrat з кирилицею при першому старті."""
     if not os.path.exists(FONT_PATH):
         print("Завантаження шрифту Montserrat-Bold...")
         url = "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat-Bold.ttf"
@@ -37,7 +37,6 @@ def ensure_font_exists():
         except Exception as e:
             print(f"Помилка завантаження шрифту: {e}")
 
-# Проверяем наличие шрифта до первого рендеринга
 ensure_font_exists()
 
 def get_font(size: int):
@@ -47,10 +46,10 @@ def get_font(size: int):
         return ImageFont.load_default()
 
 def parse_kharkiv_post(text: str):
-    """Парсит дату и все интервалы очередей из сообщения облэнерго."""
+    """Витягує дату та часи відключень із тексту або підпису посту."""
     text = text.replace('\xa0', ' ').replace('—', '-').replace('–', '-').replace('−', '-')
 
-    # Поиск даты для подписи (например: 12 жовтня или понеділок, 12 жовтня)
+    # Пошук дати або дня (наприклад: 12 жовтня або понеділок, 12 жовтня)
     date_match = re.search(r'(?:у|в)?\s*([а-яіїєґ]+,?\s*\d{1,2}\s+[а-яіїєґ]+)', text, re.IGNORECASE)
     if date_match:
         caption_date = date_match.group(1).lower().replace(",", "")
@@ -92,8 +91,7 @@ def parse_kharkiv_post(text: str):
     return caption_date, schedule_header_date, schedule
 
 def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
-    """Генерирует финальный постер 1080x1080 px без водяных знаков."""
-    # Чистый желтый фон
+    """Генерує чистий квадратний графік 1080x1080 px без водяних знаків."""
     img = Image.new("RGBA", (1080, 1080), "#FFD200")
     draw = ImageDraw.Draw(img)
 
@@ -101,7 +99,7 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
     draw.text((56, 60), "ХАРКІВОБЛЕНЕРГО • ОФІЦІЙНИЙ ГРАФІК", fill="#0F172A", font=get_font(16))
     draw.text((56, 86), "ВІДКЛЮЧЕННЯ СВІТЛА", fill="#0F172A", font=get_font(42))
 
-    # Плашка с датой
+    # Бейдж дати
     font_date = get_font(18)
     date_bbox = draw.textbbox((0, 0), schedule_date, font=font_date)
     date_w = date_bbox[2] - date_bbox[0] + 36
@@ -109,7 +107,7 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
     draw.rounded_rectangle([badge_x, 70, badge_x + date_w, 122], radius=14, fill="#0F172A")
     draw.text((badge_x + 18, 84), schedule_date, fill="#FFD200", font=font_date)
 
-    # 2. Сетка карточек (4 строки x 3 колонки)
+    # 2. Сітка карток (4 рядки на 3 стовпчики)
     grid_x = 56
     grid_y = 155
     total_w = 1080 - 112
@@ -129,7 +127,7 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
         item = schedule[q]
 
         if not item["off"] or len(item["intervals"]) == 0:
-            # Карточка: Свет есть
+            # Світло є
             draw.rounded_rectangle([x, y, x + card_w, y + card_h], radius=20, fill="#FFFFFF")
             draw.text((x + 20, y + 16), f"ЧЕРГА {q}", fill="#0F172A", font=get_font(30))
 
@@ -140,7 +138,7 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
             cy = inner_y1 + (inner_y2 - inner_y1) / 2
             draw.text((cx, cy), "СВІТЛО Є", fill="#059669", font=get_font(21), anchor="mm")
         else:
-            # Карточка: Отключение
+            # Відключення
             draw.rounded_rectangle([x, y, x + card_w, y + card_h], radius=20, fill="#0F172A")
             draw.text((x + 20, y + 15), f"ЧЕРГА {q}", fill="#FFFFFF", font=get_font(28))
 
@@ -179,23 +177,26 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
 
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
-    await message.answer("⚡ Надішліть або перешліть сюди офіційне повідомлення обленерго з графіком.")
+    await message.answer("⚡ Надішліть, вставте текстом або просто перешліть (репостніть) повідомлення обленерго з графіком.")
 
-@dp.message(F.text)
+# Обробляє як звичайні текстові повідомлення, так і репости з медіа/фото/відео (через caption)
+@dp.message(F.text | F.caption)
 async def process_schedule(message: types.Message):
-    text = message.text
-    if not re.search(r'[1-6]\.[1-2]', text):
-        await message.answer("⚠️ У тексті не знайдено черг формату 1.1, 2.2 тощо.")
+    # Отримуємо текст як зі звичайного повідомлення, так і з підпису до фото/репосту
+    incoming_text = message.text or message.caption or ""
+
+    if not re.search(r'[1-6]\.[1-2]', incoming_text):
+        # Якщо в пересланому повідомленні взагалі немає номерів черг — пропускаємо
         return
 
     status_msg = await message.answer("⏳ Малюю графік...")
     try:
-        caption_date, schedule_header_date, schedule = parse_kharkiv_post(text)
+        caption_date, schedule_header_date, schedule = parse_kharkiv_post(incoming_text)
         image_stream = generate_schedule_image(schedule_header_date, schedule)
 
-        # Формируем готовый пост с гиперссылкой в тексте https://svitlo-ua.info
+        # Жирний заголовок + потрібні гіперпосилання
         caption_text = (
-            f"💡Графік відключень світла для Харківщини на {caption_date}.\n\n"
+            f"<b>💡Графік відключень світла для Харківщини на {caption_date}.</b>\n\n"
             f"Перелік адрес за чергами – <a href=\"https://t.me/kharkivenergy/1445\">тут</a>.\n\n"
             f"⚡️ Графіки відключення, оновлені черги, все про світло в Харкові та області тут ➡️ "
             f"<a href=\"https://t.me/+5FOhqtKOJxswYmZi\">https://svitlo-ua.info</a>"
@@ -211,7 +212,7 @@ async def process_schedule(message: types.Message):
     except Exception as e:
         await status_msg.edit_text(f"❌ Помилка: {e}")
 
-# Web-сервер для прохождения проверки порта в Render
+# Web-сервер для healthcheck на Render
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
