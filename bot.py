@@ -46,10 +46,10 @@ def get_font(size: int):
         return ImageFont.load_default()
 
 def parse_kharkiv_post(text: str):
-    """Витягує виключно день і місяць, а також усі інтервали вимкнень."""
+    """Витягує число та місяць, а також усі інтервали вимкнень."""
     text = text.replace('\xa0', ' ').replace('—', '-').replace('–', '-').replace('−', '-')
 
-    # Шукаємо тільки дату: 1-2 цифри + назва місяця (ігноруємо дні тижня, щоб не ковтати літери)
+    # Шукаємо тільки дату (1-2 цифри + назва місяця)
     date_match = re.search(rf'(\b\d{{1,2}}\b)\s+({MONTHS_PATTERN})', text, re.IGNORECASE)
     if date_match:
         day = date_match.group(1)
@@ -93,7 +93,7 @@ def parse_kharkiv_post(text: str):
     return caption_date, schedule_header_date, schedule
 
 def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
-    """Генерує чіткий квадратний постер 1080x1080 px."""
+    """Генерує квадратний постер 1080x1080 px."""
     img = Image.new("RGBA", (1080, 1080), "#FFD200")
     draw = ImageDraw.Draw(img)
 
@@ -194,7 +194,7 @@ async def process_schedule(message: types.Message):
         image_stream = generate_schedule_image(schedule_header_date, schedule)
 
         caption_text = (
-            f"💡 <b>Графік відключень світла для Харківщини на {caption_date.strip()}.</b>\n\n"
+            f"<b>💡Графік відключень світла для Харківщини на {caption_date.strip()}.</b>\n\n"
             f"Перелік адрес за чергами – <a href=\"https://t.me/kharkivenergy/1445\">тут</a>.\n\n"
             f"⚡️ Графіки відключення, оновлені черги, все про світло в Харкові та області тут ➡️ "
             f"<a href=\"https://t.me/+5FOhqtKOJxswYmZi\">https://svitlo-ua.info</a>"
@@ -210,23 +210,35 @@ async def process_schedule(message: types.Message):
     except Exception as e:
         await status_msg.edit_text(f"❌ Помилка: {e}")
 
+# --- НЕЗАЛЕЖНИЙ ВЕБ-СЕРВЕР ДЛЯ RENDER ТА UPTIMEROBOT ---
 async def handle_ping(request):
-    return web.Response(text="Bot is running!")
+    return web.Response(text="Bot is running!", status=200)
 
-async def start_web_server():
+async def run_web_server():
     app = web.Application()
     app.router.add_get('/', handle_ping)
+    app.router.add_get('/health', handle_ping)
+    
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
+    print(f"Web-сервер запущено на порту {port}")
+    
+    while True:
+        await asyncio.sleep(3600)
 
-async def main():
-    await start_web_server()
-    print("Web-сервер запущено. Бот готовий до роботи...")
+async def run_bot_polling():
+    print("Запуск Telegram Polling...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
+
+async def main():
+    await asyncio.gather(
+        run_web_server(),
+        run_bot_polling()
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
