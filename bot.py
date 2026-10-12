@@ -1,15 +1,15 @@
 import io
-import math
 import os
 import re
 import asyncio
 import requests
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
+from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from PIL import Image, ImageDraw, ImageFont
 
-# Получаем токен из переменной окружения Render или вписываем сюда напрямую
+# Получаем токен из переменных среды Render или задаем напрямую
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ВАШ_ТОКЕН_БОТА")
 
 bot = Bot(token=BOT_TOKEN)
@@ -48,16 +48,17 @@ def get_font(size: int):
 
 def parse_kharkiv_post(text: str):
     """Парсит дату и все интервалы очередей из сообщения облэнерго."""
-    # Нормализуем пробелы и разновидности тире
     text = text.replace('\xa0', ' ').replace('—', '-').replace('–', '-').replace('−', '-')
 
-    # Поиск даты или дня недели
+    # Поиск даты для подписи (например: 12 жовтня или понеділок, 12 жовтня)
     date_match = re.search(r'(?:у|в)?\s*([а-яіїєґ]+,?\s*\d{1,2}\s+[а-яіїєґ]+)', text, re.IGNORECASE)
     if date_match:
-        schedule_date = date_match.group(1).upper().replace(",", "")
+        caption_date = date_match.group(1).lower().replace(",", "")
     else:
         date_simple = re.search(r'(\d{1,2}\s+[а-яіїєґ]+)', text, re.IGNORECASE)
-        schedule_date = date_simple.group(1).upper() if date_simple else "НА СЬОГОДНІ"
+        caption_date = date_simple.group(1).lower() if date_simple else "сьогодні"
+
+    schedule_header_date = caption_date.upper()
 
     schedule = {q: {"off": False, "intervals": []} for q in QUEUE_KEYS}
     lines = text.split("\n")
@@ -74,12 +75,10 @@ def parse_kharkiv_post(text: str):
         q_key = match_q.group(1)
         content = line[match_q.end():].strip()
 
-        # Проверка на статус отсутствия отключений
         if re.search(r'не\s*вимик|світло\s*є|немає\s*відключ|відсутні|^-$', content, re.IGNORECASE):
             schedule[q_key] = {"off": False, "intervals": []}
             continue
 
-        # Поиск всех интервалов времени (например: 08:00-11:00; 18:30-22:00)
         matches = re.findall(r'(\d{1,2}[:.]\d{2})\s*(?:-|до)\s*(\d{1,2}[:.]\d{2})', content)
         if matches:
             intervals = [
@@ -90,31 +89,12 @@ def parse_kharkiv_post(text: str):
         else:
             schedule[q_key] = {"off": False, "intervals": []}
 
-    return schedule_date, schedule
-
-def draw_watermark(img: Image.Image):
-    """Рисует волнистый полупрозрачный паттерн «ТРУХА» (40% непрозрачности)."""
-    overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
-    draw_ov = ImageDraw.Draw(overlay)
-    font_wm = get_font(32)
-
-    word = "ТРУХА"
-    step_x = 180
-    step_y = 70
-    amplitude = 14
-
-    for y in range(-300, 1400, step_y):
-        for x in range(-300, 1400, step_x):
-            offset_y = math.sin((x + y * 0.5) / 120.0) * amplitude
-            draw_ov.text((x, y + offset_y), word, fill=(15, 23, 42, 102), font=font_wm, anchor="mm")
-
-    rotated_overlay = overlay.rotate(-25, resample=Image.Resampling.BICUBIC, center=(540, 540))
-    img.alpha_composite(rotated_overlay)
+    return caption_date, schedule_header_date, schedule
 
 def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
-    """Генерирует финальный постер 1080x1080 px."""
+    """Генерирует финальный постер 1080x1080 px без водяных знаков."""
+    # Чистый желтый фон
     img = Image.new("RGBA", (1080, 1080), "#FFD200")
-    draw_watermark(img)
     draw = ImageDraw.Draw(img)
 
     # 1. Шапка
@@ -210,10 +190,23 @@ async def process_schedule(message: types.Message):
 
     status_msg = await message.answer("⏳ Малюю графік...")
     try:
-        schedule_date, schedule = parse_kharkiv_post(text)
-        image_stream = generate_schedule_image(schedule_date, schedule)
+        caption_date, schedule_header_date, schedule = parse_kharkiv_post(text)
+        image_stream = generate_schedule_image(schedule_header_date, schedule)
+
+        # Формируем готовый пост с гиперссылкой в тексте https://svitlo-ua.info
+        caption_text = (
+            f"💡Графік відключень світла для Харківщини на {caption_date}.\n\n"
+            f"Перелік адрес за чергами – <a href=\"https://t.me/kharkivenergy/1445\">тут</a>.\n\n"
+            f"⚡️ Графіки відключення, оновлені черги, все про світло в Харкові та області тут ➡️ "
+            f"<a href=\"https://t.me/+5FOhqtKOJxswYmZi\">https://svitlo-ua.info</a>"
+        )
+
         photo = types.BufferedInputFile(image_stream.read(), filename="grafik.png")
-        await message.answer_photo(photo=photo, caption=f"⚡ {schedule_date}")
+        await message.answer_photo(
+            photo=photo,
+            caption=caption_text,
+            parse_mode=ParseMode.HTML
+        )
         await status_msg.delete()
     except Exception as e:
         await status_msg.edit_text(f"❌ Помилка: {e}")
