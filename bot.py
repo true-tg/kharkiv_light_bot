@@ -93,31 +93,31 @@ def parse_kharkiv_post(text: str):
     return caption_date, schedule_header_date, schedule
 
 def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
-    """Генерує квадратний постер 1080x1080 px."""
+    """Генерує квадратний постер 1080x1080 px із підвалом Труха Харків."""
     img = Image.new("RGBA", (1080, 1080), "#FFD200")
     draw = ImageDraw.Draw(img)
 
     # 1. Шапка
-    draw.text((56, 60), "ХАРКІВОБЛЕНЕРГО • ОФІЦІЙНИЙ ГРАФІК", fill="#0F172A", font=get_font(16))
-    draw.text((56, 86), "ВІДКЛЮЧЕННЯ СВІТЛА", fill="#0F172A", font=get_font(42))
+    draw.text((56, 56), "ХАРКІВОБЛЕНЕРГО • ОФІЦІЙНИЙ ГРАФІК", fill="#0F172A", font=get_font(16))
+    draw.text((56, 82), "ВІДКЛЮЧЕННЯ СВІТЛА", fill="#0F172A", font=get_font(42))
 
     # Бейдж дати
     font_date = get_font(18)
     date_bbox = draw.textbbox((0, 0), schedule_date, font=font_date)
     date_w = date_bbox[2] - date_bbox[0] + 36
     badge_x = 1080 - 56 - date_w
-    draw.rounded_rectangle([badge_x, 70, badge_x + date_w, 122], radius=14, fill="#0F172A")
-    draw.text((badge_x + 18, 84), schedule_date, fill="#FFD200", font=font_date)
+    draw.rounded_rectangle([badge_x, 66, badge_x + date_w, 118], radius=14, fill="#0F172A")
+    draw.text((badge_x + 18, 80), schedule_date, fill="#FFD200", font=font_date)
 
     # 2. Сітка карток (4 рядки на 3 стовпчики)
     grid_x = 56
-    grid_y = 155
+    grid_y = 148
     total_w = 1080 - 112
-    total_h = 1080 - 155 - 55
+    total_h = 1080 - 148 - 72  # Залишаємо місце для тексту в підвалі
     cols = 3
     rows = 4
     gap_x = 18
-    gap_y = 16
+    gap_y = 15
     card_w = (total_w - (cols - 1) * gap_x) / cols
     card_h = (total_h - (rows - 1) * gap_y) / rows
 
@@ -133,8 +133,8 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
             draw.rounded_rectangle([x, y, x + card_w, y + card_h], radius=20, fill="#FFFFFF")
             draw.text((x + 20, y + 16), f"ЧЕРГА {q}", fill="#0F172A", font=get_font(30))
 
-            inner_y1 = y + 62
-            inner_y2 = y + card_h - 18
+            inner_y1 = y + 60
+            inner_y2 = y + card_h - 16
             draw.rounded_rectangle([x + 18, inner_y1, x + card_w - 18, inner_y2], radius=14, fill="#ECFDF5")
             cx = x + card_w / 2
             cy = inner_y1 + (inner_y2 - inner_y1) / 2
@@ -149,11 +149,11 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
 
             intervals = item["intervals"]
             count = len(intervals)
-            content_y = y + 54
-            content_h = card_h - 66
+            content_y = y + 52
+            content_h = card_h - 64
 
             if count == 1:
-                slot_h, font_sz, gap = 52, 23, 0
+                slot_h, font_sz, gap = 50, 23, 0
             elif count == 2:
                 slot_h, font_sz, gap = 40, 19, 10
             elif count == 3:
@@ -171,6 +171,11 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
                 sy = start_y + t_idx * (slot_h + gap)
                 draw.rounded_rectangle([x + 14, sy, x + card_w - 14, sy + slot_h], radius=10, fill="#1E293B", outline="#334155", width=1)
                 draw.text((x + card_w / 2, sy + slot_h / 2), time_str, fill="#FFD200", font=font_time, anchor="mm")
+
+    # 3. Підвал картинки по центру
+    footer_text = "ТРУХА ХАРКІВ"
+    font_footer = get_font(24)
+    draw.text((540, 1045), footer_text, fill="#0F172A", font=font_footer, anchor="mm")
 
     output = io.BytesIO()
     img.convert("RGB").save(output, format="PNG", quality=95)
