@@ -9,7 +9,6 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from PIL import Image, ImageDraw, ImageFont
 
-# Токен береться з Environment Variables Render або вказується вручну
 BOT_TOKEN = os.getenv("BOT_TOKEN", "ВАШ_ТОКЕН_БОТА")
 
 bot = Bot(token=BOT_TOKEN)
@@ -22,9 +21,10 @@ QUEUE_KEYS = [
 ]
 
 FONT_PATH = "Montserrat-Bold.ttf"
+MONTHS_PATTERN = r'(?:січня|лютого|березня|квітня|травня|червня|липня|серпня|вересня|жовтня|листопада|грудня)'
 
 def ensure_font_exists():
-    """Завантажує шрифт Montserrat з кирилицею при першому старті."""
+    """Завантажує шрифт Montserrat з кирилицею при першому запуску."""
     if not os.path.exists(FONT_PATH):
         print("Завантаження шрифту Montserrat-Bold...")
         url = "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat-Bold.ttf"
@@ -46,16 +46,18 @@ def get_font(size: int):
         return ImageFont.load_default()
 
 def parse_kharkiv_post(text: str):
-    """Витягує дату та часи відключень із тексту або підпису посту."""
+    """Витягує виключно день і місяць, а також усі інтервали вимкнень."""
     text = text.replace('\xa0', ' ').replace('—', '-').replace('–', '-').replace('−', '-')
 
-    # Пошук дати або дня (наприклад: 12 жовтня або понеділок, 12 жовтня)
-    date_match = re.search(r'(?:у|в)?\s*([а-яіїєґ]+,?\s*\d{1,2}\s+[а-яіїєґ]+)', text, re.IGNORECASE)
+    # Шукаємо тільки дату: 1-2 цифри + назва місяця (ігноруємо дні тижня, щоб не ковтати літери)
+    date_match = re.search(rf'(\b\d{{1,2}}\b)\s+({MONTHS_PATTERN})', text, re.IGNORECASE)
     if date_match:
-        caption_date = date_match.group(1).lower().replace(",", "")
+        day = date_match.group(1)
+        month = date_match.group(2).lower()
+        caption_date = f"{day} {month}"
     else:
-        date_simple = re.search(r'(\d{1,2}\s+[а-яіїєґ]+)', text, re.IGNORECASE)
-        caption_date = date_simple.group(1).lower() if date_simple else "сьогодні"
+        alt_date = re.search(r'(\b\d{1,2}[./]\d{2}(?:[./]\d{2,4})?\b)', text)
+        caption_date = alt_date.group(1) if alt_date else "сьогодні"
 
     schedule_header_date = caption_date.upper()
 
@@ -91,7 +93,7 @@ def parse_kharkiv_post(text: str):
     return caption_date, schedule_header_date, schedule
 
 def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
-    """Генерує чистий квадратний графік 1080x1080 px без водяних знаків."""
+    """Генерує чіткий квадратний постер 1080x1080 px."""
     img = Image.new("RGBA", (1080, 1080), "#FFD200")
     draw = ImageDraw.Draw(img)
 
@@ -177,16 +179,13 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
 
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
-    await message.answer("⚡ Надішліть, вставте текстом або просто перешліть (репостніть) повідомлення обленерго з графіком.")
+    await message.answer("⚡ Надішліть або репостніть сюди офіційне повідомлення обленерго з графіком.")
 
-# Обробляє як звичайні текстові повідомлення, так і репости з медіа/фото/відео (через caption)
 @dp.message(F.text | F.caption)
 async def process_schedule(message: types.Message):
-    # Отримуємо текст як зі звичайного повідомлення, так і з підпису до фото/репосту
     incoming_text = message.text or message.caption or ""
 
     if not re.search(r'[1-6]\.[1-2]', incoming_text):
-        # Якщо в пересланому повідомленні взагалі немає номерів черг — пропускаємо
         return
 
     status_msg = await message.answer("⏳ Малюю графік...")
@@ -194,9 +193,8 @@ async def process_schedule(message: types.Message):
         caption_date, schedule_header_date, schedule = parse_kharkiv_post(incoming_text)
         image_stream = generate_schedule_image(schedule_header_date, schedule)
 
-        # Жирний заголовок + потрібні гіперпосилання
         caption_text = (
-            f"<b>💡Графік відключень світла для Харківщини на {caption_date}.</b>\n\n"
+            f"💡 <b>Графік відключень світла для Харківщини на {caption_date.strip()}.</b>\n\n"
             f"Перелік адрес за чергами – <a href=\"https://t.me/kharkivenergy/1445\">тут</a>.\n\n"
             f"⚡️ Графіки відключення, оновлені черги, все про світло в Харкові та області тут ➡️ "
             f"<a href=\"https://t.me/+5FOhqtKOJxswYmZi\">https://svitlo-ua.info</a>"
@@ -212,7 +210,6 @@ async def process_schedule(message: types.Message):
     except Exception as e:
         await status_msg.edit_text(f"❌ Помилка: {e}")
 
-# Web-сервер для healthcheck на Render
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
