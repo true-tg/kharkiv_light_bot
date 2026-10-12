@@ -93,7 +93,7 @@ def parse_kharkiv_post(text: str):
     return caption_date, schedule_header_date, schedule
 
 def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
-    """Генерує квадратний постер 1080x1080 px із підвалом Труха Харків."""
+    """Генерує квадратний постер 1080x1080 px із нижньою 'чолкою' у стилі iPhone."""
     img = Image.new("RGBA", (1080, 1080), "#FFD200")
     draw = ImageDraw.Draw(img)
 
@@ -111,9 +111,9 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
 
     # 2. Сітка карток (4 рядки на 3 стовпчики)
     grid_x = 56
-    grid_y = 148
+    grid_y = 146
     total_w = 1080 - 112
-    total_h = 1080 - 148 - 72  # Залишаємо місце для тексту в підвалі
+    total_h = 1080 - 146 - 80  # Додатковий простір під нижню чолку
     cols = 3
     rows = 4
     gap_x = 18
@@ -172,10 +172,25 @@ def generate_schedule_image(schedule_date: str, schedule: dict) -> io.BytesIO:
                 draw.rounded_rectangle([x + 14, sy, x + card_w - 14, sy + slot_h], radius=10, fill="#1E293B", outline="#334155", width=1)
                 draw.text((x + card_w / 2, sy + slot_h / 2), time_str, fill="#FFD200", font=font_time, anchor="mm")
 
-    # 3. Підвал картинки по центру
-    footer_text = "ТРУХА ХАРКІВ"
-    font_footer = get_font(24)
-    draw.text((540, 1045), footer_text, fill="#0F172A", font=font_footer, anchor="mm")
+    # 3. Нижня «чолка» у стилі iPhone Notch
+    # Параметри плашки
+    notch_w = 400
+    notch_h = 54
+    notch_x1 = int((1080 - notch_w) / 2)
+    notch_x2 = notch_x1 + notch_w
+    notch_y1 = 1080 - notch_h
+    # Опускаємо нижню грань за межі полотна, щоб заокруглювалися лише верхні кути
+    notch_y2 = 1080 + 30
+    notch_radius = 26
+
+    # Малюємо темну чолку кольору блоків (#0F172A)
+    draw.rounded_rectangle([notch_x1, notch_y1, notch_x2, notch_y2], radius=notch_radius, fill="#0F172A")
+
+    # Текст усередині чолки: білий з широким пробілом
+    footer_text = "ТРУХА   ХАРКІВ"
+    font_footer = get_font(21)
+    text_cy = notch_y1 + int(notch_h / 2) + 2
+    draw.text((540, text_cy), footer_text, fill="#FFFFFF", font=font_footer, anchor="mm")
 
     output = io.BytesIO()
     img.convert("RGB").save(output, format="PNG", quality=95)
